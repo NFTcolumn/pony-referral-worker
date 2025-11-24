@@ -1,0 +1,17 @@
+services:
+  - type: worker
+    name: pony-referral-worker
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PRIVATE_KEY
+        sync: false
+      - key: RPC_URL
+        sync: false
+      - key: REFERRAL_CONTRACT_ADDRESS
+        sync: false
+      - key: GAME_CONTRACT_ADDRESS
+        sync: false
+      - key: CHECK_INTERVAL_MS
+        value: "60000"
