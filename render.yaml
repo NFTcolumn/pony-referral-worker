@@ -5,13 +5,17 @@ services:
     buildCommand: npm install
     startCommand: npm start
     envVars:
-      - key: PRIVATE_KEY
+      - key: MAINNET_PRIVATE_KEY
         sync: false
-      - key: RPC_URL
+      - key: BASE_MAINNET_RPC
         sync: false
+      - key: BASESCAN_API_KEY
+        sync: false
+      - key: PIXEL_PONY_V1_ADDRESS
+        value: "0x2B4652Bd6149E407E3F57190E25cdBa1FC9d37d8"
       - key: REFERRAL_CONTRACT_ADDRESS
-        sync: false
-      - key: GAME_CONTRACT_ADDRESS
-        sync: false
-      - key: CHECK_INTERVAL_MS
-        value: "60000"
+        value: "0x82249d29af7d7b1F20A63D7aa1248A40c58848e8"
+      - key: CHECK_INTERVAL
+        value: "3600000"
+      - key: START_BLOCK
+        value: "38576900"

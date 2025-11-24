@@ -5,10 +5,10 @@ const ethers = require("ethers");
 const PIXEL_PONY_V1_ADDRESS = process.env.PIXEL_PONY_V1_ADDRESS || "0x2B4652Bd6149E407E3F57190E25cdBa1FC9d37d8";
 const REFERRAL_CONTRACT_ADDRESS = process.env.REFERRAL_CONTRACT_ADDRESS || "0x82249d29af7d7b1F20A63D7aa1248A40c58848e8";
 const RPC_URL = process.env.BASE_MAINNET_RPC || "https://mainnet.base.org";
+const BASESCAN_API_KEY = process.env.BASESCAN_API_KEY;
 const PRIVATE_KEY = process.env.MAINNET_PRIVATE_KEY;
 const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL || "3600000"); // 1 hour in ms
 const REWARD_PER_RACE = ethers.utils.parseEther("0.00005");
-const MAX_BLOCK_RANGE = parseInt(process.env.MAX_BLOCK_RANGE || "2000"); // Limit block range to avoid RPC timeouts
 const INITIAL_BLOCK_LOOKBACK = parseInt(process.env.INITIAL_BLOCK_LOOKBACK || "200"); // ~7 minutes on Base (2s per block)
 const MAX_RETRIES = 3;
 
@@ -54,6 +54,20 @@ async function retryWithBackoff(fn, retries = MAX_RETRIES) {
     }
 }
 
+async function fetchEventsFromEtherscan(contractAddress, topic0, fromBlock, toBlock) {
+    // Use Etherscan V2 API with Base chainid (8453)
+    const url = `https://api.etherscan.io/v2/api?chainid=8453&module=logs&action=getLogs&fromBlock=${fromBlock}&toBlock=${toBlock}&address=${contractAddress}&topic0=${topic0}&apikey=${BASESCAN_API_KEY}`;
+
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.status !== "1") {
+        throw new Error(`Etherscan API error: ${data.message || data.result}`);
+    }
+
+    return data.result;
+}
+
 async function trackAndFundReferrals() {
     console.log(`\n[${new Date().toISOString()}] 🔍 Checking for new referrals...`);
 
@@ -63,21 +77,29 @@ async function trackAndFundReferrals() {
         // Get current block with retry
         const currentBlock = await retryWithBackoff(() => provider.getBlockNumber());
 
-        // Limit scan range to avoid RPC timeouts
         // On first run, only look back a short time (INITIAL_BLOCK_LOOKBACK blocks)
         // On subsequent runs, scan from last processed block
         let fromBlock = lastProcessedBlock === 0 ? currentBlock - INITIAL_BLOCK_LOOKBACK : lastProcessedBlock + 1;
-        const toBlock = Math.min(fromBlock + MAX_BLOCK_RANGE, currentBlock);
+        const toBlock = currentBlock;
 
         console.log(`📊 Scanning blocks ${fromBlock} to ${toBlock}...`);
 
-        if (toBlock < currentBlock) {
-            console.log(`   ℹ️  ${currentBlock - toBlock} blocks remaining (will catch up gradually)`);
-        }
+        // Query RaceExecuted events via Etherscan API
+        // RaceExecuted event topic: keccak256("RaceExecuted(uint256,address,uint256,uint256[3],uint256,bool)")
+        const raceExecutedTopic = "0xd63f1f71f601a02f376024c3f3585d1cf84dc49580e4ce6237d0274928825d73";
 
-        // Query RaceExecuted events with retry
-        const filter = pixelPony.filters.RaceExecuted();
-        const events = await retryWithBackoff(() => pixelPony.queryFilter(filter, fromBlock, toBlock));
+        const logs = await retryWithBackoff(() =>
+            fetchEventsFromEtherscan(PIXEL_PONY_V1_ADDRESS, raceExecutedTopic, fromBlock, toBlock)
+        );
+
+        // Parse events using ethers
+        const pixelPonyInterface = new ethers.utils.Interface([
+            "event RaceExecuted(uint256 indexed raceId, address indexed player, uint256 horseId, uint256[3] winners, uint256 payout, bool won)"
+        ]);
+
+        const events = logs.map(log => ({
+            args: pixelPonyInterface.parseLog(log).args
+        }));
 
         if (events.length === 0) {
             console.log("✅ No new races found");
