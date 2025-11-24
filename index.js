@@ -9,6 +9,7 @@ const PRIVATE_KEY = process.env.MAINNET_PRIVATE_KEY;
 const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL || "3600000"); // 1 hour in ms
 const REWARD_PER_RACE = ethers.utils.parseEther("0.00005");
 const MAX_BLOCK_RANGE = parseInt(process.env.MAX_BLOCK_RANGE || "2000"); // Limit block range to avoid RPC timeouts
+const INITIAL_BLOCK_LOOKBACK = parseInt(process.env.INITIAL_BLOCK_LOOKBACK || "200"); // ~7 minutes on Base (2s per block)
 const MAX_RETRIES = 3;
 
 // State tracking
@@ -63,13 +64,15 @@ async function trackAndFundReferrals() {
         const currentBlock = await retryWithBackoff(() => provider.getBlockNumber());
 
         // Limit scan range to avoid RPC timeouts
-        let fromBlock = lastProcessedBlock === 0 ? currentBlock - 1000 : lastProcessedBlock + 1;
+        // On first run, only look back a short time (INITIAL_BLOCK_LOOKBACK blocks)
+        // On subsequent runs, scan from last processed block
+        let fromBlock = lastProcessedBlock === 0 ? currentBlock - INITIAL_BLOCK_LOOKBACK : lastProcessedBlock + 1;
         const toBlock = Math.min(fromBlock + MAX_BLOCK_RANGE, currentBlock);
 
         console.log(`📊 Scanning blocks ${fromBlock} to ${toBlock}...`);
 
         if (toBlock < currentBlock) {
-            console.log(`   ℹ️  ${currentBlock - toBlock} blocks remaining for next scan`);
+            console.log(`   ℹ️  ${currentBlock - toBlock} blocks remaining (will catch up gradually)`);
         }
 
         // Query RaceExecuted events with retry
