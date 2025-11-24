@@ -179,12 +179,15 @@ async function runWorker() {
     // Initial check
     await trackAndFundReferrals();
 
+    console.log("\n✅ Worker running. Will check every", CHECK_INTERVAL / 1000 / 60, "minutes");
+    console.log(`   Next check at: ${new Date(Date.now() + CHECK_INTERVAL).toISOString()}`);
+
     // Set up interval
     setInterval(async () => {
+        console.log(`\n⏰ Interval triggered at ${new Date().toISOString()}`);
         await trackAndFundReferrals();
+        console.log(`   Next check at: ${new Date(Date.now() + CHECK_INTERVAL).toISOString()}`);
     }, CHECK_INTERVAL);
-
-    console.log("\n✅ Worker running. Will check every", CHECK_INTERVAL / 1000 / 60, "minutes");
 }
 
 // Handle graceful shutdown
