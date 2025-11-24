@@ -8,6 +8,8 @@ const RPC_URL = process.env.BASE_MAINNET_RPC || "https://mainnet.base.org";
 const PRIVATE_KEY = process.env.MAINNET_PRIVATE_KEY;
 const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL || "3600000"); // 1 hour in ms
 const REWARD_PER_RACE = ethers.utils.parseEther("0.00005");
+const MAX_BLOCK_RANGE = parseInt(process.env.MAX_BLOCK_RANGE || "2000"); // Limit block range to avoid RPC timeouts
+const MAX_RETRIES = 3;
 
 // State tracking
 let lastProcessedBlock = parseInt(process.env.START_BLOCK || "0");
@@ -34,25 +36,49 @@ async function initContracts() {
     return { provider, wallet, pixelPony, referral };
 }
 
+async function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function retryWithBackoff(fn, retries = MAX_RETRIES) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            return await fn();
+        } catch (error) {
+            if (i === retries - 1) throw error;
+            const delay = Math.pow(2, i) * 1000; // Exponential backoff: 1s, 2s, 4s
+            console.log(`   ⚠️  Retry ${i + 1}/${retries} after ${delay}ms...`);
+            await sleep(delay);
+        }
+    }
+}
+
 async function trackAndFundReferrals() {
     console.log(`\n[${new Date().toISOString()}] 🔍 Checking for new referrals...`);
 
     try {
         const { provider, wallet, pixelPony, referral } = await initContracts();
 
-        // Get current block
-        const currentBlock = await provider.getBlockNumber();
-        const fromBlock = lastProcessedBlock === 0 ? currentBlock - 1000 : lastProcessedBlock + 1;
+        // Get current block with retry
+        const currentBlock = await retryWithBackoff(() => provider.getBlockNumber());
 
-        console.log(`📊 Scanning blocks ${fromBlock} to ${currentBlock}...`);
+        // Limit scan range to avoid RPC timeouts
+        let fromBlock = lastProcessedBlock === 0 ? currentBlock - 1000 : lastProcessedBlock + 1;
+        const toBlock = Math.min(fromBlock + MAX_BLOCK_RANGE, currentBlock);
 
-        // Query RaceExecuted events
+        console.log(`📊 Scanning blocks ${fromBlock} to ${toBlock}...`);
+
+        if (toBlock < currentBlock) {
+            console.log(`   ℹ️  ${currentBlock - toBlock} blocks remaining for next scan`);
+        }
+
+        // Query RaceExecuted events with retry
         const filter = pixelPony.filters.RaceExecuted();
-        const events = await pixelPony.queryFilter(filter, fromBlock, currentBlock);
+        const events = await retryWithBackoff(() => pixelPony.queryFilter(filter, fromBlock, toBlock));
 
         if (events.length === 0) {
             console.log("✅ No new races found");
-            lastProcessedBlock = currentBlock;
+            lastProcessedBlock = toBlock;
             return;
         }
 
@@ -87,7 +113,7 @@ async function trackAndFundReferrals() {
 
         if (referralData.size === 0) {
             console.log("✅ No referred races found");
-            lastProcessedBlock = currentBlock;
+            lastProcessedBlock = toBlock;
             return;
         }
 
@@ -118,7 +144,7 @@ async function trackAndFundReferrals() {
 
         if (referrersToFund.length === 0) {
             console.log("✅ All referrers already funded");
-            lastProcessedBlock = currentBlock;
+            lastProcessedBlock = toBlock;
             return;
         }
 
@@ -152,7 +178,7 @@ async function trackAndFundReferrals() {
         console.log(`   Funded ${referrersToFund.length} referrers with ${ethers.utils.formatEther(totalToFund)} ETH`);
 
         // Update last processed block
-        lastProcessedBlock = currentBlock;
+        lastProcessedBlock = toBlock;
 
     } catch (error) {
         console.error("\n❌ Error tracking/funding referrals:");
