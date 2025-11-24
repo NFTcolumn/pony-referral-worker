@@ -1,0 +1,17 @@
+{
+  "name": "pony-referral-worker",
+  "version": "1.0.0",
+  "description": "Background worker for Pixel Pony referral system",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "keywords": ["ethereum", "referral", "worker", "base"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ethers": "^5.7.2",
+    "dotenv": "^16.0.3"
+  }
+}
